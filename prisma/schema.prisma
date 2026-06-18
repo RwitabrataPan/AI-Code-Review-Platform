@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  githubId      Int            @unique
+  login         String
+  email         String?
+  avatarUrl     String?
+  accessToken   String
+  installations Installation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Installation {
+  id              String       @id @default(cuid())
+  githubInstallId Int          @unique
+  accountLogin    String
+  accountType     String
+  active          Boolean      @default(true)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+  repositories    Repository[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model Repository {
+  id             String        @id @default(cuid())
+  githubRepoId   Int           @unique
+  fullName       String
+  private        Boolean       @default(false)
+  installationId String
+  installation   Installation  @relation(fields: [installationId], references: [id])
+  pullRequests   PullRequest[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model PullRequest {
+  id              String      @id @default(cuid())
+  githubPrId      Int
+  number          Int
+  title           String
+  authorLogin     String
+  state           String
+  headSha         String
+  headBranch      String
+  baseBranch      String
+  lastReviewedSha String?
+  repositoryId    String
+  repository      Repository  @relation(fields: [repositoryId], references: [id])
+  reviews         Review[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([repositoryId, githubPrId])
+}
+
+model Review {
+  id              String       @id @default(cuid())
+  pullRequestId   String
+  pullRequest     PullRequest  @relation(fields: [pullRequestId], references: [id])
+  status          ReviewStatus @default(PENDING)
+  processingStage String?
+  securityScore   Int?
+  qualityScore    Int?
+  findingsCount   Int          @default(0)
+  githubReviewId  Int?
+  findings        Finding[]
+  errorMessage    String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+enum ReviewStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Finding {
+  id              String          @id @default(cuid())
+  reviewId        String
+  review          Review          @relation(fields: [reviewId], references: [id])
+  category        FindingCategory
+  severity        FindingSeverity
+  title           String
+  description     String
+  suggestion      String
+  filePath        String
+  lineStart       Int
+  lineEnd         Int?
+  confidence      Float
+  published       Boolean         @default(false)
+  githubCommentId Int?
+  createdAt       DateTime        @default(now())
+}
+
+enum FindingCategory {
+  SECURITY
+  CODE_SMELL
+}
+
+enum FindingSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+model WebhookDelivery {
+  id               String        @id @default(cuid())
+  githubDeliveryId String        @unique
+  event            String
+  action           String?
+  payload          Json
+  signature        String
+  status           WebhookStatus @default(RECEIVED)
+  reviewId         String?
+  errorMessage     String?
+  receivedAt       DateTime      @default(now())
+  processedAt      DateTime?
+}
+
+enum WebhookStatus {
+  RECEIVED
+  ENQUEUED
+  IGNORED
+  FAILED
+}
