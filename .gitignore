@@ -3,7 +3,7 @@ node_modules/
 .pnp
 .pnp.js
 
-# Next.js build
+# Next.js build output
 .next/
 out/
 build/
@@ -15,6 +15,7 @@ build/
 
 # Prisma
 prisma/*.db
+prisma/migrations/dev_*/
 
 # TypeScript
 *.tsbuildinfo
@@ -23,11 +24,28 @@ next-env.d.ts
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Logs
 *.log
 pino-*.log
+npm-debug.log*
+
+# Testing / coverage
+coverage/
+.nyc_output/
+
+# Graphify analysis output — generated, never versioned
+graphify-out/
+
+# Temporary / debug files
+*.tmp
+*.temp
+debug/
+tmp/

@@ -71,8 +71,10 @@ export async function publishGitHubReview(params: {
   summary: ReviewSummary
   allFindings: AIFinding[]
   truncated: boolean
+  // ponytail: injectable for testing — avoids patching ESM module exports
+  _octokit?: InstanceType<typeof Octokit>
 }): Promise<number> {
-  const octokit = new Octokit({ auth: params.token })
+  const octokit = params._octokit ?? new Octokit({ auth: params.token })
 
   const comments = params.publishableFindings.map(f => ({
     path: f.filePath,

@@ -5,13 +5,14 @@ import { prisma } from '@/lib/db'
 export default async function PRPage({
   params,
 }: {
-  params: { owner: string; repo: string; number: string }
+  params: Promise<{ owner: string; repo: string; number: string }>
 }) {
   const session = await auth()
   if (!session?.user?.id) redirect('/')
 
-  const fullName = `${params.owner}/${params.repo}`
-  const prNumber = parseInt(params.number, 10)
+  const { owner, repo, number } = await params
+  const fullName = `${owner}/${repo}`
+  const prNumber = parseInt(number, 10)
 
   const pr = await prisma.pullRequest.findFirst({
     where: { repository: { fullName }, number: prNumber },

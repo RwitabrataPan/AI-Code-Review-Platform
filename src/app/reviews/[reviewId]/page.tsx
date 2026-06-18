@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, use } from 'react'
 import { FindingCard } from '@/components/finding-card'
 import { FindingsSummary } from '@/components/findings-summary'
 import { ProcessingProgress } from '@/components/processing-progress'
@@ -27,18 +27,19 @@ interface Review {
   }
 }
 
-export default function ReviewDetailPage({ params }: { params: { reviewId: string } }) {
+export default function ReviewDetailPage({ params }: { params: Promise<{ reviewId: string }> }) {
+  const { reviewId } = use(params)
   const [review, setReview] = useState<Review | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchReview = useCallback(async () => {
-    const res = await fetch(`/api/reviews/${params.reviewId}`)
+    const res = await fetch(`/api/reviews/${reviewId}`)
     if (res.ok) {
       const data = await res.json()
       setReview(data)
       if (data.status === 'COMPLETED' || data.status === 'FAILED') setLoading(false)
     }
-  }, [params.reviewId])
+  }, [reviewId])
 
   useEffect(() => {
     fetchReview()
@@ -47,7 +48,7 @@ export default function ReviewDetailPage({ params }: { params: { reviewId: strin
   useEffect(() => {
     if (!review || review.status === 'COMPLETED' || review.status === 'FAILED') return
     const interval = setInterval(async () => {
-      const res = await fetch(`/api/reviews/${params.reviewId}/status`)
+      const res = await fetch(`/api/reviews/${reviewId}/status`)
       if (res.ok) {
         const status = await res.json()
         if (status.status === 'COMPLETED' || status.status === 'FAILED') {
@@ -59,7 +60,8 @@ export default function ReviewDetailPage({ params }: { params: { reviewId: strin
       }
     }, 5000)
     return () => clearInterval(interval)
-  }, [review?.status, params.reviewId, fetchReview])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review?.status, reviewId, fetchReview])
 
   if (!review && loading) {
     return <div className="max-w-4xl mx-auto px-4 py-8 text-muted-foreground">Loading review...</div>
