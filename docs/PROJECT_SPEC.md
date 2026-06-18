@@ -1,32 +1,21 @@
-# AI Code Review Platform — MVP Design Spec
-
-**Date:** 2026-06-18
-**Status:** Approved
-**Scope:** MVP — PR Review Loop (Option A)
-
----
+# AI Code Review Platform — Product Specification
 
 ## 1. Overview
 
-An enterprise-grade AI Code Review Platform that automatically reviews GitHub Pull Requests, posting inline security and code smell findings plus a structured summary comment — triggered by a GitHub App webhook, processed asynchronously by a BullMQ worker, and powered by Claude.
+An enterprise-grade AI Code Review Platform that automatically reviews GitHub Pull Requests, posting inline security and code smell findings plus a structured summary comment. Reviews are triggered by a GitHub App webhook, processed asynchronously by a BullMQ worker, and powered by Claude.
 
 ### MVP Success Criteria
 
-The MVP is complete when:
-1. A user can log in with GitHub OAuth
-2. They can install the GitHub App on a repository
-3. When a PR is opened or pushed to, the platform automatically posts inline review comments and a summary comment on GitHub
-4. A dashboard shows the PR history, scores, and findings
+1. A user can log in with GitHub OAuth.
+2. They can install the GitHub App on a repository.
+3. When a PR is opened or pushed to, the platform automatically posts inline review comments and a summary comment on GitHub.
+4. A dashboard shows PR history, scores, and findings.
 
 ### Target Users
 
-- Software companies
-- Engineering teams
-- Startup CTOs
+Software companies, engineering teams, and startup CTOs who want fewer, higher-accuracy findings rather than exhaustive shallow scanning.
 
-### Competitive Reference
-
-CodeRabbit, SonarQube, Snyk — but focused on delivering fewer, higher-accuracy findings rather than exhaustive shallow scanning.
+**Competitive reference:** CodeRabbit, SonarQube, Snyk.
 
 ---
 
@@ -37,14 +26,14 @@ CodeRabbit, SonarQube, Snyk — but focused on delivering fewer, higher-accuracy
 - GitHub OAuth login
 - GitHub App installation flow
 - Webhook receiver for `pull_request` events
-- AI review: Security Analysis + Code Smell Detection
+- AI review: Security Analysis + Code Smell Detection (parallel)
 - Inline review comments on specific diff lines
 - Summary review comment (scores + grouped findings)
 - Dashboard: repo list, PR history, metrics cards
-- PR review detail page with findings and processing progress
+- PR review detail page with findings and live processing progress
 - Canonical review URL (`/reviews/[reviewId]`)
 
-### Explicitly Out of Scope (Post-MVP)
+### Out of Scope (Post-MVP)
 
 - Performance Analysis
 - Architecture Analysis
@@ -62,20 +51,22 @@ CodeRabbit, SonarQube, Snyk — but focused on delivering fewer, higher-accuracy
 
 ### Deployment
 
-**Platform:** Railway (two services from one repository)
-**Service 1:** Next.js Web App
-**Service 2:** BullMQ Worker (Node.js process, no HTTP server)
-**Shared:** PostgreSQL, Redis (both Railway-managed)
+**Platform:** Railway — two services from one repository.
 
-No Turborepo. No monorepo tooling. Two Railway services with different start commands pointing at the same repo.
+| Service | Type | Start Command |
+|---|---|---|
+| Web | Next.js App | `npm run start` |
+| Worker | Node.js process (no HTTP server) | `npm run worker` |
+
+Both services share the same PostgreSQL and Redis add-ons. No Turborepo. No monorepo tooling.
 
 ### Service Responsibilities
 
 **Service 1 — Next.js Web App**
-- GitHub OAuth login (NextAuth.js)
+- GitHub OAuth login via NextAuth.js
 - GitHub App installation callback
-- Webhook receiver (`POST /api/webhooks/github`) — validates, enqueues, returns 200 immediately
-- Dashboard UI (Server Components)
+- Webhook receiver (`POST /api/webhooks/github`) — validates signature, enqueues job, returns 200 immediately
+- Dashboard UI (Server Components + Prisma direct queries)
 - REST status endpoint for client polling
 
 **Service 2 — BullMQ Worker**
@@ -83,20 +74,20 @@ No Turborepo. No monorepo tooling. Two Railway services with different start com
 - Fetches PR diff from GitHub API
 - Runs AI analysis pipeline
 - Posts GitHub review (inline comments + summary)
-- Updates Review record on completion or failure
+- Updates Review record to COMPLETED or FAILED
 
-**Shared components (imported by both services)**
+**Shared code (imported by both services)**
 - `src/lib/db.ts` — Prisma client singleton
 - `src/lib/redis.ts` — Redis connection
-- `src/lib/queue.ts` — queue definition + job types
-- `src/lib/ai/` — provider interface + Claude implementation
+- `src/lib/queue.ts` — queue definition and job types
+- `src/lib/ai/` — provider interface and Claude implementation
 - `src/types/` — shared TypeScript types
-- `src/lib/logger.ts` — structured logging utility
+- `src/lib/logger.ts` — structured logging (pino)
 
 ### End-to-End Flow
 
 ```
-GitHub User opens PR
+GitHub user opens PR
         │
         ▼
 GitHub sends webhook ──► POST /api/webhooks/github
@@ -137,7 +128,7 @@ GitHub sends webhook ──► POST /api/webhooks/github
 
 ## 4. Data Model
 
-### Schema
+### Prisma Schema
 
 ```prisma
 model User {
@@ -146,7 +137,7 @@ model User {
   login         String
   email         String?
   avatarUrl     String?
-  accessToken   String         // encrypted at rest
+  accessToken   String         // encrypted at rest with AES-256-GCM
   installations Installation[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -202,11 +193,11 @@ model Review {
   pullRequestId   String
   pullRequest     PullRequest     @relation(fields: [pullRequestId], references: [id])
   status          ReviewStatus    @default(PENDING)
-  processingStage String?         // "FETCHING_DIFF" | "SECURITY_ANALYSIS" | "CODE_SMELL_ANALYSIS" | "GENERATING_SUMMARY" | "PUBLISHING"
+  processingStage String?         // "FETCHING_DIFF" | "SECURITY_ANALYSIS" | "GENERATING_SUMMARY" | "PUBLISHING"
   securityScore   Int?            // 0–100, null until COMPLETED
   qualityScore    Int?            // 0–100, null until COMPLETED
   findingsCount   Int             @default(0)
-  githubReviewId  Int?            // GitHub review ID after posting
+  githubReviewId  Int?
   findings        Finding[]
   errorMessage    String?
   startedAt       DateTime?
@@ -222,9 +213,6 @@ enum ReviewStatus {
   FAILED
 }
 
-// Valid transitions: PENDING→PROCESSING→COMPLETED, PENDING→PROCESSING→FAILED
-// All other transitions are rejected before DB write.
-
 model Finding {
   id              String          @id @default(cuid())
   reviewId        String
@@ -237,7 +225,7 @@ model Finding {
   filePath        String
   lineStart       Int
   lineEnd         Int?
-  confidence      Float           // 0.0–1.0, AI-assigned
+  confidence      Float           // 0.0–1.0
   published       Boolean         @default(false)  // true if posted to GitHub
   githubCommentId Int?
   createdAt       DateTime        @default(now())
@@ -259,10 +247,10 @@ enum FindingSeverity {
 model WebhookDelivery {
   id               String        @id @default(cuid())
   githubDeliveryId String        @unique  // X-GitHub-Delivery header
-  event            String        // X-GitHub-Event header
+  event            String
   action           String?
-  payload          Json          // raw payload — retained for debugging and future replay
-  signature        String        // X-Hub-Signature-256
+  payload          Json          // raw payload retained for debugging and replay
+  signature        String
   status           WebhookStatus @default(RECEIVED)
   reviewId         String?
   errorMessage     String?
@@ -278,14 +266,14 @@ enum WebhookStatus {
 }
 ```
 
-### Key Design Decisions
+### Key Data Decisions
 
-- `Finding.suggestion` is non-nullable — the AI must always provide a concrete fix. Enforced at the data layer.
-- `Installation.active` is set to false on deletion events rather than cascading deletes — preserves historical review data.
-- `PullRequest.lastReviewedSha` prevents re-reviewing the same commit when the webhook fires multiple times for the same push.
-- `Review.processingStage` powers the live progress UI; not required for correctness.
-- `WebhookDelivery.payload` is retained for debugging and future replay capability.
-- `Finding.published` distinguishes findings posted to GitHub from those saved-only due to confidence thresholds.
+- **`Finding.suggestion` is non-nullable** — the AI must always provide a concrete fix. Enforced at the data layer.
+- **`Installation.active` soft-deletes on uninstall** — set to `false` rather than cascading deletes, preserving historical review data.
+- **`PullRequest.lastReviewedSha`** — prevents re-reviewing the same commit when the webhook fires multiple times for the same push.
+- **`Review.processingStage`** — powers the live progress UI. Not required for correctness; critical for demo experience.
+- **`WebhookDelivery.payload`** — retained for debugging and future replay.
+- **`Finding.published`** — distinguishes findings posted to GitHub from those saved-only due to confidence thresholds.
 
 ---
 
@@ -298,13 +286,13 @@ enum WebhookStatus {
 - Handled by NextAuth.js GitHub provider
 - Stores `githubId`, `login`, `avatarUrl`, encrypted `accessToken` on the User record
 
-**GitHub App** — repository access + webhooks + comment posting.
+**GitHub App** — repository access, webhooks, and comment posting.
 - Permissions: `pull_requests: write`, `contents: read`, `metadata: read`, `checks: read`
 - Subscribed events: `pull_request`, `installation`, `installation_repositories`
 - Generates short-lived installation tokens (1h TTL) for all repo API calls
 - Never uses the user's OAuth token for repository operations
 
-### Webhook Handler (`POST /api/webhooks/github`)
+### Webhook Handler — `POST /api/webhooks/github`
 
 ```
 1. Read X-Hub-Signature-256, X-GitHub-Event, X-GitHub-Delivery
@@ -325,18 +313,18 @@ enum WebhookStatus {
    installation (deleted)  → Set Installation.active = false
 
    installation_repositories (added)   → Upsert Repositories
-   installation_repositories (removed) → Remove Repository records
+   installation_repositories (removed) → Delete Repository records
 
    anything else → WebhookDelivery (IGNORED)
 
-6. Return 200 in all cases
+6. Return 200 in all cases — never 5xx a webhook
 ```
 
 ### Installation Token Flow (Worker)
 
-At the start of each job, the worker obtains a fresh installation token:
+At the start of each job:
 1. Sign a GitHub App JWT with the App's private key (10-minute expiry)
-2. `POST /app/installations/{id}/access_tokens` → short-lived token (1h)
+2. `POST /app/installations/{id}/access_tokens` → short-lived token (1h TTL)
 3. Use token for all GitHub API calls in this job
 4. Token is not persisted
 
@@ -344,7 +332,9 @@ At the start of each job, the worker obtains a fresh installation token:
 
 Each push to a PR creates a new `Review` record. Previous reviews are preserved. The PR detail page redirects to the latest review. `/reviews/[reviewId]` is the canonical URL for any specific review — this future-proofs review history browsing.
 
-### Comment Publishing (Single API Call)
+### Comment Publishing
+
+All inline comments and the summary are posted atomically in a single GitHub API call:
 
 ```
 POST /repos/{owner}/{repo}/pulls/{number}/reviews
@@ -359,19 +349,16 @@ POST /repos/{owner}/{repo}/pulls/{number}/reviews
 }
 ```
 
-All inline comments and the summary are posted atomically in one GitHub notification.
-
-If this API call fails after analysis completes: findings are already saved to DB, Review is marked FAILED with errorMessage. Analysis work is never lost.
+If this call fails after analysis completes, findings are already saved to the DB and the Review is marked FAILED with `errorMessage`. Analysis work is never lost.
 
 ---
 
 ## 6. AI Provider Interface
 
-### Contract
+### TypeScript Contract
 
 ```typescript
 // src/lib/ai/types.ts
-
 export interface DiffFile {
   path: string
   patch: string
@@ -401,7 +388,7 @@ export interface AIFinding {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
   title: string
   description: string
-  suggestion: string     // always present
+  suggestion: string     // always present — non-nullable
   filePath: string
   lineStart: number
   lineEnd?: number
@@ -429,29 +416,14 @@ export interface AIProvider {
 
 ### Claude Implementation
 
-Model: `claude-sonnet-4-6`
-Temperature: `0` (deterministic)
-Output: JSON, mandatory Zod validation on every response — no raw Claude output is accepted anywhere in the system.
+- Model: `claude-sonnet-4-6`
+- Temperature: `0` (deterministic)
+- All responses validated with Zod before use — raw AI output is never accepted anywhere in the system.
+- The worker imports only `getAIProvider()` — never `ClaudeProvider` or `@anthropic-ai/sdk` directly.
 
-```typescript
-// src/lib/ai/providers/claude.ts
-export class ClaudeProvider implements AIProvider { ... }
+### Local Development Mode
 
-// src/lib/ai/index.ts
-export function getAIProvider(): AIProvider {
-  return new ClaudeProvider()
-}
-```
-
-The worker and all other callers import only `getAIProvider()` — never `ClaudeProvider` or `@anthropic-ai/sdk` directly.
-
-### Prompt Strategy
-
-Each method sends one API call. System prompt instructs Claude to:
-- Analyze only changed lines in the diff
-- Return a JSON array matching the Zod schema
-- Only report findings with high confidence
-- Return `[]` if nothing qualifies — never speculate
+Set `USE_MOCK_AI=true` to use `MockAIProvider`: a deterministic implementation with no Anthropic API calls. Detects SQL injection, hardcoded secrets, command injection, path traversal, long functions, magic numbers, TODO comments, and console.log statements via regex rules.
 
 ### Pipeline
 
@@ -468,127 +440,91 @@ analyzeSecurity()   analyzeCodeSmells()
     │
 Zod validate both
 Merge findings
-Deduplicate (filePath + lineStart + title)
+Deduplicate (filePath + lineStart + title — keep highest confidence)
 Confidence gate:
-  ≥ 0.85 → published to GitHub
-  0.70–0.84 → saved to DB only (visible in dashboard)
-  < 0.70 → discarded
-Save findings (published flag set accordingly)
+  ≥ 0.85  → published to GitHub + saved to DB  (published = true)
+  0.70–0.84 → saved to DB only                 (published = false)
+  < 0.70  → discarded
 generateSummary(publishableFindings, diff, context)
 Zod validate summary
-Post GitHub review
+Post GitHub review (single API call)
 ```
 
-### Large Diff Handling (MVP)
+### Large Diff Handling
 
-PRs exceeding 8,000 patch lines are truncated before sending to Claude:
+PRs exceeding 8,000 patch lines are truncated before sending to the AI:
 - Files prioritized by additions count descending
-- A note is included in the summary comment when truncation occurs
+- A truncation note is included in the summary comment when this occurs
 
-**Future (post-MVP):** Chunked analysis — split diff into file-level chunks, one child job per chunk (`analyze-pr-chunk` queue), parent job aggregates results.
+**Post-MVP:** Chunked analysis via `analyze-pr-chunk` queue — one child job per file group, parent aggregates results.
 
 ---
 
 ## 7. Job Queue and Worker Pipeline
 
-### Reserved Queue Names
+### Queue Names
 
 | Queue | Status |
 |---|---|
 | `pr-analysis` | Active (MVP) |
 | `analyze-pr-chunk` | Reserved (chunked analysis, post-MVP) |
-| `publish-review` | Reserved (decoupled publish step, post-MVP) |
+| `publish-review` | Reserved (decoupled publish, post-MVP) |
 
-### Queue Configuration
+### Job Configuration
 
-```typescript
-export const PR_ANALYSIS_QUEUE = 'pr-analysis'
-
-export interface AnalyzePRJobData {
-  reviewId: string
-  pullRequestId: string
-  installationId: number
-  owner: string
-  repo: string
-  prNumber: number
-  headSha: string
-  baseSha: string
-  headBranch: string
-  baseBranch: string
-}
-
-export const prAnalysisQueue = new Queue<AnalyzePRJobData>(PR_ANALYSIS_QUEUE, {
-  connection: redis,
-  defaultJobOptions: {
-    jobId: reviewId,          // prevents duplicate enqueue for same review
-    timeout: 300_000,         // 5 minute hard timeout → triggers retry flow
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
-    removeOnComplete: { age: 86_400 },
-    removeOnFail:    { age: 604_800 },
-  },
-})
-```
-
-### Worker Configuration
-
-```typescript
-const worker = new Worker<AnalyzePRJobData>(
-  PR_ANALYSIS_QUEUE,
-  processAnalyzePR,
-  { connection: redis, concurrency: 3 }
-)
-```
+- `jobId` = `reviewId` — prevents duplicate enqueue for the same review
+- Concurrency: 3 workers
+- Max lock duration: 5 minutes (BullMQ v5 `lockDuration`)
+- Attempts: 3 with exponential backoff from 5s
+- Completed jobs retained: 24 hours
+- Failed jobs retained: 7 days
 
 ### Startup Recovery
 
-On worker boot, before processing any jobs:
+On worker boot, before accepting any jobs:
 
 ```
-Find all Reviews where status = PROCESSING AND startedAt < (now - 15 minutes)
+Find all Reviews where status = PROCESSING AND startedAt < (now - 15 min)
 For each: mark FAILED, errorMessage = "Worker interrupted"
 ```
 
 Prevents permanently stuck reviews from worker crashes.
 
-### Full Pipeline
+### Full Processor Pipeline
 
 ```
 1.  Guard: if headSha === PullRequest.lastReviewedSha → exit (no-op)
-2.  Status transition: PENDING → PROCESSING (reject if invalid)
+2.  Validate status = PENDING; transition PENDING → PROCESSING
     Set Review.startedAt, processingStage = "FETCHING_DIFF"
 3.  Fetch GitHub installation token
 4.  Fetch PR diff (GET /repos/{owner}/{repo}/pulls/{number}/files)
-    Build PullRequestDiff (truncate if > 8,000 patch lines)
-5.  processingStage = "SECURITY_ANALYSIS" + "CODE_SMELL_ANALYSIS"
+    Build PullRequestDiff; truncate if > 8,000 patch lines
+5.  processingStage = "SECURITY_ANALYSIS"
     Run analyzeSecurity() and analyzeCodeSmells() in parallel
-6.  Zod validate both responses (throw on schema mismatch → retry)
+6.  Zod validate both responses (throw on schema mismatch → triggers BullMQ retry)
 7.  Merge findings
-8.  Deduplicate: filePath + lineStart + title → keep highest confidence
-9.  Confidence gate (≥ 0.85 published, 0.70–0.84 saved-only, < 0.70 discarded)
-10. Save all findings ≥ 0.70 to DB (published flag set)
+8.  Deduplicate: key = filePath + lineStart + title → keep highest confidence on clash
+9.  Apply confidence gate (≥ 0.85 published, 0.70–0.84 saved-only, < 0.70 discarded)
+10. Save all findings ≥ 0.70 to DB (published flag set accordingly)
 11. processingStage = "GENERATING_SUMMARY"
-    Build ReviewContext
-    generateSummary(publishableFindings, diff, context)
+    Build ReviewContext; generateSummary(publishableFindings, diff, context)
     Zod validate summary
 12. processingStage = "PUBLISHING"
     POST /repos/{owner}/{repo}/pulls/{number}/reviews (single call)
 13. If publish fails:
-    - Findings already saved ✓
-    - Summary already computed ✓
-    - Mark Review FAILED with errorMessage
-    - Do not lose analysis work
+    Findings already saved ✓  Summary already computed ✓
+    Mark Review FAILED with errorMessage; do not re-throw (analysis preserved)
 14. If publish succeeds:
-    Status transition: PROCESSING → COMPLETED (reject if invalid)
-    Set: securityScore, qualityScore, findingsCount, completedAt
+    Transition PROCESSING → COMPLETED
+    Set: securityScore, qualityScore, findingsCount, githubReviewId, completedAt
     Update: PullRequest.lastReviewedSha = headSha
 ```
 
-### Status Transition Rules
+### Status Transitions
 
 Valid: `PENDING → PROCESSING → COMPLETED`
 Valid: `PENDING → PROCESSING → FAILED`
-All other transitions are rejected before any DB write.
+All other transitions throw before any DB write.
 
 ### Error Handling
 
@@ -596,28 +532,29 @@ All other transitions are rejected before any DB write.
 |---|---|
 | GitHub token fetch fails | BullMQ retry (exponential backoff, 3 attempts) |
 | Diff fetch fails | BullMQ retry |
-| Claude API error | BullMQ retry |
+| AI provider error | BullMQ retry |
 | Zod validation fails | BullMQ retry |
 | GitHub publish fails | Save findings + summary; mark FAILED with errorMessage |
 | All retries exhausted | Review → FAILED; job preserved 7 days |
-| headSha already reviewed | Exit immediately; WebhookDelivery → IGNORED |
+| headSha already reviewed | Exit immediately; no DB writes |
 
 ---
 
-## 8. Dashboard and Frontend
+## 8. Frontend
 
 ### Routes
 
 | Route | Description |
 |---|---|
 | `/` | Landing page — value prop + "Login with GitHub" CTA |
-| `/dashboard` | Installed repos + recent PRs + metrics cards |
-| `/repos/[owner]/[repo]/pulls/[number]` | PR page — redirects to latest review |
+| `/dashboard` | Installed repos, recent PRs, metrics cards |
+| `/repos/[owner]/[repo]/pulls/[number]` | Redirects to latest review for this PR |
 | `/reviews/[reviewId]` | Canonical review detail page |
 | `/api/auth/[...nextauth]` | NextAuth.js OAuth handler |
 | `/api/github/callback` | GitHub App installation callback |
 | `/api/webhooks/github` | Webhook receiver |
-| `/api/reviews/[reviewId]/status` | Polling endpoint for PROCESSING state |
+| `/api/reviews/[reviewId]` | Full review data (findings included) |
+| `/api/reviews/[reviewId]/status` | Lightweight polling endpoint |
 
 ### Auth
 
@@ -625,47 +562,28 @@ NextAuth.js with GitHub OAuth provider. Session stored as signed JWT. Middleware
 
 ### Data Fetching
 
-- **Server Components** for all initial page renders — direct Prisma queries, no API round-trip
-- **Client polling** on `/reviews/[reviewId]` while `status === PROCESSING` — polls `/api/reviews/[reviewId]/status` every 5 seconds, calls `router.refresh()` on COMPLETED
-- No SWR, no React Query — correct choice for MVP
+- **Server Components** for all initial page renders — direct Prisma queries, no API round-trip.
+- **Client polling** on `/reviews/[reviewId]` while `status === PROCESSING` — polls `/api/reviews/[reviewId]/status` every 5 seconds, calls `router.refresh()` on COMPLETED.
+- No SWR, no React Query — intentional for MVP simplicity.
 
-### Dashboard Page
+### Dashboard
 
-**Metrics cards (top):**
-- Repositories Reviewed
-- Pull Requests Reviewed
-- Critical Findings
-- Average Security Score
-
-All derived from existing DB data — no additional backend complexity.
+**Metrics cards (top):** Repositories Reviewed, Pull Requests Reviewed, Critical Findings, Average Security Score. All derived from existing DB data.
 
 **Repository list:** Recent PRs per repo with status badge, security score, quality score, critical finding count.
 
-**Empty state (no repos):** "Install the GitHub App to get started" → GitHub App install URL.
-**Empty state (repo installed, no PRs):** "Open a Pull Request to trigger your first AI review."
+**Empty states:**
+- No repos installed → "Install the GitHub App to get started"
+- App installed, no PRs → "Open a Pull Request to trigger your first AI review"
 
 ### Review Detail Page (`/reviews/[reviewId]`)
 
-**Header:** PR title, base←head branches, author login, "View Pull Request" link, "View Repository" link (GitHub links — recruiter-facing).
-
-**Timestamps:** Started At, Completed At, Duration (demonstrates async processing visually).
-
-**Processing progress (while PROCESSING):**
-- Fetching Diff
-- Running Security Analysis
-- Running Code Smell Analysis
-- Generating Summary
-- Publishing Review
-
-Backed by `Review.processingStage` — not required for correctness, critical for demo experience.
-
-**Scores:** Security Score (0–100) and Code Quality Score (0–100) displayed as circular rings.
-
-**Findings summary:** Critical / High / Medium counts.
-
-**Findings grouped by category:** SECURITY then CODE_SMELL, each finding shows severity badge, title, file path + line number, description, suggestion, confidence percentage.
-
-**"View on GitHub" actions:** View Pull Request, View Repository — direct GitHub links. Present on every review page.
+- PR title, base←head branches, author login, GitHub links
+- Timestamps: Started At, Completed At, Duration
+- Live processing progress bar (backed by `Review.processingStage`) while status = PROCESSING
+- Security Score and Code Quality Score as circular ring indicators (0–100)
+- Findings summary: Critical / High / Medium counts
+- Findings grouped by category (SECURITY then CODE_SMELL), each with severity badge, file path, line number, description, suggestion, confidence
 
 ### Component Structure
 
@@ -688,37 +606,32 @@ src/
     metrics-cards.tsx
 ```
 
-### Intentionally Excluded (Post-MVP)
-
-Billing, team management, org analytics, settings, usage limits.
-
 ---
 
-## 9. Tech Stack Summary
+## 9. Tech Stack
 
 | Layer | Choice |
 |---|---|
 | Framework | Next.js 15 (App Router) |
-| Language | TypeScript |
+| Language | TypeScript (strict mode) |
 | Styling | Tailwind CSS + shadcn/ui |
-| Database | PostgreSQL (Railway) |
-| ORM | Prisma |
-| Cache / Queue | Redis (Railway) |
-| Job Queue | BullMQ |
-| Auth | NextAuth.js (GitHub OAuth) |
-| AI | Claude (`claude-sonnet-4-6`) via Anthropic SDK |
+| Database | PostgreSQL (Railway add-on) |
+| ORM | Prisma 5 |
+| Cache / Queue | Redis (Railway add-on) |
+| Job Queue | BullMQ 5 |
+| Auth | NextAuth.js v5 beta (GitHub OAuth) |
+| AI (production) | Claude `claude-sonnet-4-6` via `@anthropic-ai/sdk` |
+| AI (development) | `MockAIProvider` — deterministic, no API calls |
 | Deployment | Railway (two services) |
 
 ---
 
-## 10. Future Phases (Not Designed)
+## 10. Future Phases
 
-- Performance Analysis
-- Architecture Analysis
+- Performance Analysis and Architecture Analysis passes
 - OpenAI + Gemini providers (interface already supports them)
 - Chunked diff analysis (`analyze-pr-chunk` queue)
 - Decoupled publish step (`publish-review` queue)
-- Repository Intelligence (dependency graph, import graph, knowledge graph)
+- Repository Intelligence (dependency graph, knowledge graph)
 - Team analytics and org-level dashboard
-- Billing and usage limits
-- Settings and configuration UI
+- Billing, usage limits, and settings UI

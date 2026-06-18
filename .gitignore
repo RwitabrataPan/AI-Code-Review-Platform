@@ -43,6 +43,11 @@ coverage/
 
 # Graphify analysis output — generated, never versioned
 graphify-out/
+.graphify-out/
+
+# AI tooling artifacts — not project artifacts
+.superpowers/
+.claude/
 
 # Temporary / debug files
 *.tmp
