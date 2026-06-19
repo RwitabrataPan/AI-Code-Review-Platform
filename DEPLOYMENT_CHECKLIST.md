@@ -18,9 +18,9 @@ All variables are required unless marked optional.
 | `GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID | `Iv1.xyz...` |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret | `secret...` |
 | `GITHUB_APP_NAME` | GitHub App slug (for install link) | `my-ai-reviewer` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
+| `ANTHROPIC_API_KEY` | AI provider API key | `your-api-key-here` |
 | `ENCRYPTION_KEY` | 32-byte hex key for token encryption | `openssl rand -hex 32` |
-| `USE_MOCK_AI` | *(optional)* Set `true` to use MockAIProvider (no Anthropic calls) | `true` |
+| `USE_MOCK_AI` | *(optional)* Set `true` to use MockAIProvider (no external AI API calls) | `true` |
 | `LOG_LEVEL` | *(optional)* Pino log level | `info` |
 
 ---

@@ -36,7 +36,7 @@ async function main() {
   const worker = new Worker(PR_ANALYSIS_QUEUE, processAnalyzePR, {
     connection,
     concurrency: 3,
-    // ponytail: BullMQ v5 removed per-job timeout; enforce here instead
+    // BullMQ v5 removed per-job timeout from JobOptions; lockDuration is the equivalent enforcement mechanism
     lockDuration: 300_000,
   })
 

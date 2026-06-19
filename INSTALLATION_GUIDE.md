@@ -91,7 +91,7 @@ Primary datastore. Seven models: `User`, `Installation`, `Repository`, `PullRequ
 Job queue backend for BullMQ. Completed jobs are retained for 24 hours; failed jobs for 7 days.
 
 **AI Provider Layer**
-A single `AIProvider` interface (`src/lib/ai/provider.ts`) with two implementations: `ClaudeProvider` (production) and `MockAIProvider` (local development). All callers import only `getAIProvider()` — never the concrete class or SDK directly. Every AI response is validated with Zod before use.
+A single `AIProvider` interface (`src/lib/ai/provider.ts`) with two implementations: a production provider and `MockAIProvider` (local development). All callers import only `getAIProvider()` — never the concrete class or SDK directly. Every AI response is validated with Zod before use.
 
 ---
 
@@ -268,9 +268,8 @@ GITHUB_APP_CLIENT_SECRET="your-app-client-secret"
 GITHUB_APP_NAME="your-app-name"
 
 # ─── AI Provider ──────────────────────────────────────────────────────────────
-# Anthropic API key — required for production AI analysis
-# Get from: https://console.anthropic.com
-ANTHROPIC_API_KEY="sk-ant-..."
+# AI provider API key — required for production AI analysis
+ANTHROPIC_API_KEY="your-api-key-here"
 
 # ─── Token Encryption ─────────────────────────────────────────────────────────
 # 32-byte hex key used to encrypt GitHub OAuth access tokens at rest (AES-256-GCM)
@@ -528,7 +527,7 @@ npm run validate
 |---|---|
 | `src/lib/crypto.test.ts` | AES-256-GCM roundtrip, unique ciphertexts, tamper detection |
 | `src/lib/ai/schemas.test.ts` | Zod schema validation for findings and summary |
-| `src/lib/ai/providers/claude.test.ts` | Claude provider with mocked Anthropic SDK |
+| `src/lib/ai/providers/claude.test.ts` | AI provider with mocked SDKopic SDK |
 | `src/lib/github/webhook.test.ts` | HMAC-SHA256 signature validation |
 | `src/lib/github/diff.test.ts` | PR diff fetching and truncation logic |
 | `src/lib/github/review.test.ts` | GitHub review publishing and comment formatting |

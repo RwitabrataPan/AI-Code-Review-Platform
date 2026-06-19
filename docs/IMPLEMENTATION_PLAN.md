@@ -6,7 +6,7 @@ These rules apply across all phases and all code:
 
 - Node.js ≥ 20.x; TypeScript strict mode throughout
 - All path imports use `@/` alias mapped to `./src`
-- All Claude responses validated with Zod — raw AI output is never accepted anywhere in the system
+- All AI responses validated with Zod — raw AI output is never accepted anywhere in the system
 - Status transitions: `PENDING → PROCESSING → COMPLETED` or `PENDING → PROCESSING → FAILED` only; all others throw before any DB write
 - Confidence thresholds: ≥ 0.85 published to GitHub; 0.70–0.84 saved to DB only; < 0.70 discarded
 - Deduplication key: `filePath + lineStart + title` — keep highest confidence on clash
@@ -54,9 +54,9 @@ npx tsc --noEmit   # 0 errors
 
 ## Phase 2: AI Review Engine
 
-**Objectives:** AI provider interface, Zod validation schemas, Claude implementation. All Claude responses validated before use. Tests pass with a mocked Anthropic client.
+**Objectives:** AI provider interface, Zod validation schemas, provider implementation. All AI responses validated before use. Tests pass with a mocked AI client.
 
-**Outcome:** `getAIProvider()` is the single import for AI — callers never touch `ClaudeProvider` or the SDK directly.
+**Outcome:** `getAIProvider()` is the single import for AI — callers never touch the concrete provider class or SDK directly.
 
 ### Files Created
 
@@ -68,20 +68,20 @@ src/lib/ai/providers/claude.ts      ← ClaudeProvider: analyzeSecurity, analyze
 src/lib/ai/providers/mock.ts        ← MockAIProvider: deterministic regex rules, no API calls
 src/lib/ai/index.ts                 ← getAIProvider() — returns MockAIProvider if USE_MOCK_AI=true
 src/lib/ai/schemas.test.ts          ← valid/invalid finding and summary schema tests
-src/lib/ai/providers/claude.test.ts ← mocked Anthropic SDK tests
+src/lib/ai/providers/claude.test.ts ← mocked AI SDK tests
 ```
 
 ### Key Technical Decisions
 
-- Temperature `0` on all Claude calls — deterministic output required for consistent CI behavior.
-- `extractJSON` handles three output formats: fenced code block, inline JSON array/object, raw JSON. Claude sometimes wraps responses in markdown.
-- `MockAIProvider` enables full local development and CI without Anthropic API access. Set `USE_MOCK_AI=true` in `.env.local`.
+- Temperature `0` on all AI provider calls — deterministic output required for consistent CI behavior.
+- `extractJSON` handles three output formats: fenced code block, inline JSON array/object, raw JSON. The provider sometimes wraps responses in markdown.
+- `MockAIProvider` enables full local development and CI without an AI provider API key. Set `USE_MOCK_AI=true` in `.env.local`.
 - Zod schema rejects any finding missing `suggestion` — enforces the non-nullable constraint before it hits the DB layer.
 
 ### Verification
 
 ```bash
-npm test           # all tests pass (crypto + schemas + claude provider)
+npm test           # all tests pass (crypto + schemas + ai provider)
 npx tsc --noEmit   # 0 errors
 ```
 
@@ -292,7 +292,7 @@ npm run validate   # E2E pipeline: in-memory DB, MockAIProvider, full findings c
 
 ## E2E Pipeline Validation
 
-`scripts/validate-pipeline.ts` runs the full analysis pipeline without PostgreSQL, Redis, or Anthropic:
+`scripts/validate-pipeline.ts` runs the full analysis pipeline without PostgreSQL, Redis, or an external AI provider:
 
 - Uses `pg-mem` (in-memory PostgreSQL) with the full Prisma schema applied manually
 - Seeds: User → Installation → Repository → PullRequest → Review (PENDING)

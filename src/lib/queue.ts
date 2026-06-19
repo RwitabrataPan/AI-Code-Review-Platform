@@ -16,7 +16,7 @@ export interface AnalyzePRJobData {
   baseBranch: string
 }
 
-// ponytail: separate connection config avoids bullmq's bundled ioredis conflicting with our top-level ioredis instance
+// BullMQ v5 bundles its own ioredis; passing a plain options object avoids the type conflict with the top-level ioredis instance
 function getBullMQConnection(): ConnectionOptions {
   const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379')
   return {

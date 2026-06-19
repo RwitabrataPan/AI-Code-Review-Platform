@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-An enterprise-grade AI Code Review Platform that automatically reviews GitHub Pull Requests, posting inline security and code smell findings plus a structured summary comment. Reviews are triggered by a GitHub App webhook, processed asynchronously by a BullMQ worker, and powered by Claude.
+An enterprise-grade AI Code Review Platform that automatically reviews GitHub Pull Requests, posting inline security and code smell findings plus a structured summary comment. Reviews are triggered by a GitHub App webhook, processed asynchronously by a BullMQ worker, and powered by a configurable AI provider.
 
 ### MVP Success Criteria
 
@@ -80,7 +80,7 @@ Both services share the same PostgreSQL and Redis add-ons. No Turborepo. No mono
 - `src/lib/db.ts` — Prisma client singleton
 - `src/lib/redis.ts` — Redis connection
 - `src/lib/queue.ts` — queue definition and job types
-- `src/lib/ai/` — provider interface and Claude implementation
+- `src/lib/ai/` — provider interface and AI provider implementations
 - `src/types/` — shared TypeScript types
 - `src/lib/logger.ts` — structured logging (pino)
 
@@ -414,16 +414,16 @@ export interface AIProvider {
 }
 ```
 
-### Claude Implementation
+### AI Provider Implementation
 
-- Model: `claude-sonnet-4-6`
+- Model: configured via environment
 - Temperature: `0` (deterministic)
 - All responses validated with Zod before use — raw AI output is never accepted anywhere in the system.
-- The worker imports only `getAIProvider()` — never `ClaudeProvider` or `@anthropic-ai/sdk` directly.
+- The worker imports only `getAIProvider()` — never the concrete provider class or SDK directly.
 
 ### Local Development Mode
 
-Set `USE_MOCK_AI=true` to use `MockAIProvider`: a deterministic implementation with no Anthropic API calls. Detects SQL injection, hardcoded secrets, command injection, path traversal, long functions, magic numbers, TODO comments, and console.log statements via regex rules.
+Set `USE_MOCK_AI=true` to use `MockAIProvider`: a deterministic implementation with no external AI API calls. Detects SQL injection, hardcoded secrets, command injection, path traversal, long functions, magic numbers, TODO comments, and console.log statements via regex rules.
 
 ### Pipeline
 
@@ -620,7 +620,7 @@ src/
 | Cache / Queue | Redis (Railway add-on) |
 | Job Queue | BullMQ 5 |
 | Auth | NextAuth.js v5 beta (GitHub OAuth) |
-| AI (production) | Claude `claude-sonnet-4-6` via `@anthropic-ai/sdk` |
+| AI (production) | Configured AI provider |
 | AI (development) | `MockAIProvider` — deterministic, no API calls |
 | Deployment | Railway (two services) |
 
