@@ -413,10 +413,6 @@ Extract logic into smaller, reusable functions.
 
 ---
 
-## Screenshots
-
-Add screenshots or demo GIFs here.
-
 ### Dashboard
 
 ```text
